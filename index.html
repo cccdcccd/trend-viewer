@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 外部への通信は GitHub API だけに制限する（トークンを他所へ送らせないため） -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://api.github.com; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="トレンド">
+<meta name="theme-color" content="#f6f5f2">
+<title>トレンドネタ</title>
+<style>
+:root {
+  --color-bg: #f6f5f2;
+  --color-surface: #ffffff;
+  --color-text: #1d1d1f;
+  --color-muted: #6b6b70;
+  --color-border: #e3e1dc;
+  --color-accent: #2f6fde;
+  --color-star: #e8a400;
+  --color-star-off: #c9c6bf;
+  --color-ai-badge-bg: #efeae0;
+  --color-danger: #c4352b;
+  --color-ok: #2e7d4f;
+  --radius: 12px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --font-base: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #121214;
+    --color-surface: #1c1c1f;
+    --color-text: #ececee;
+    --color-muted: #9a9aa1;
+    --color-border: #2e2e33;
+    --color-accent: #6ea0ff;
+    --color-star: #ffc233;
+    --color-star-off: #4a4a50;
+    --color-ai-badge-bg: #2a2723;
+    --color-danger: #ff6b5e;
+    --color-ok: #5fcf8c;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-base);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-text-size-adjust: 100%;
+}
+a { color: var(--color-accent); }
+button, input, select { font: inherit; color: inherit; }
+
+.app-header {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  padding: calc(env(safe-area-inset-top) + var(--space-2)) var(--space-4) var(--space-2);
+}
+.header-row { display: flex; align-items: center; gap: var(--space-2); }
+.app-title { font-size: 18px; margin: 0; flex: 1; }
+.save-status { font-size: 12px; color: var(--color-muted); }
+.save-status.is-error { color: var(--color-danger); }
+.icon-button {
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  border-radius: 999px; padding: var(--space-1) var(--space-3); min-height: 36px;
+}
+.tabs { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.tab-button {
+  flex: 1; min-height: 38px; border-radius: 999px;
+  border: 1px solid var(--color-border); background: var(--color-surface);
+}
+.tab-button[aria-selected="true"] { background: var(--color-text); color: var(--color-bg); border-color: var(--color-text); }
+
+.filters { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-top: var(--space-2); }
+.filters[hidden] { display: none; }
+.filters .search-input { grid-column: 1 / -1; }
+.filter-toggle { margin-top: var(--space-2); }
+.filter-toggle.is-active { border-color: var(--color-accent); color: var(--color-accent); }
+.filter-control {
+  width: 100%; min-height: 38px; padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface);
+}
+.date-nav { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.date-nav select { flex: 1; }
+.filter-summary { font-size: 12px; color: var(--color-muted); margin: var(--space-1) 0 0; }
+
+main { padding: var(--space-3) var(--space-4) calc(env(safe-area-inset-bottom) + 48px); max-width: 760px; margin: 0 auto; }
+.section-title { font-size: 17px; margin: var(--space-4) 0 var(--space-2); }
+.source-title { font-size: 14px; color: var(--color-muted); margin: var(--space-4) 0 var(--space-1); }
+.message { color: var(--color-muted); padding: var(--space-4) 0; }
+.message.is-error { color: var(--color-danger); }
+
+.card-list, .entry-list { list-style: none; margin: 0; padding: 0; }
+.topic-card {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: var(--space-3); margin-bottom: var(--space-2);
+}
+.topic-meta { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; font-size: 12px; color: var(--color-muted); }
+.ai-badge { background: var(--color-ai-badge-bg); color: var(--color-star); border-radius: 6px; padding: 0 6px; font-weight: 600; }
+.field-badge { border: 1px solid var(--color-border); border-radius: 6px; padding: 0 6px; }
+.topic-title { font-size: 16px; font-weight: 600; margin: var(--space-1) 0; }
+.topic-note { margin: 0 0 var(--space-1); font-size: 14px; }
+.link-row { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-size: 13px; }
+.item-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
+
+.entry-item { padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border); }
+.entry-title { font-size: 15px; }
+.entry-sub { font-size: 12px; color: var(--color-muted); }
+
+.rating { display: inline-flex; flex-shrink: 0; }
+.star-button {
+  width: 36px; height: 36px; border: 0; background: none; padding: 0;
+  font-size: 22px; line-height: 1; color: var(--color-star-off);
+}
+.star-button.is-on { color: var(--color-star); }
+
+.blog-list { padding-left: 1.2em; margin: 0; font-size: 14px; }
+details.failed { margin-top: var(--space-4); font-size: 13px; color: var(--color-muted); }
+
+dialog.settings {
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+  background: var(--color-surface); color: var(--color-text);
+  width: min(480px, calc(100vw - 32px)); padding: var(--space-4);
+}
+dialog.settings::backdrop { background: rgba(0, 0, 0, 0.4); }
+.settings label { display: block; font-size: 14px; margin-top: var(--space-3); }
+.settings input { width: 100%; margin-top: var(--space-1); }
+.settings-help { font-size: 12px; color: var(--color-muted); }
+.settings-actions { display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-4); flex-wrap: wrap; }
+.primary-button { background: var(--color-accent); color: #fff; border: 0; border-radius: 8px; padding: var(--space-2) var(--space-4); min-height: 40px; }
+.secondary-button { background: none; border: 1px solid var(--color-border); border-radius: 8px; padding: var(--space-2) var(--space-4); min-height: 40px; }
+.danger-text { color: var(--color-danger); }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="header-row">
+    <h1 class="app-title">トレンドネタ</h1>
+    <span class="save-status" id="saveStatus" role="status" aria-live="polite"></span>
+    <button type="button" class="icon-button" id="reloadButton" aria-label="再読み込み">↻</button>
+    <button type="button" class="icon-button" id="settingsButton">設定</button>
+  </div>
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab-button" role="tab" id="tabDaily" aria-selected="true">日別</button>
+    <button type="button" class="tab-button" role="tab" id="tabStars" aria-selected="false">★一覧</button>
+  </div>
+  <div class="date-nav" id="dateNav">
+    <button type="button" class="icon-button" id="prevDate" aria-label="前の日">‹</button>
+    <select class="filter-control" id="dateSelect" aria-label="日付"></select>
+    <button type="button" class="icon-button" id="nextDate" aria-label="次の日">›</button>
+  </div>
+  <button type="button" class="filter-control filter-toggle" id="filterToggle" aria-expanded="false" aria-controls="filters">検索・絞り込み ▾</button>
+  <div class="filters" id="filters" hidden>
+    <input type="search" class="filter-control search-input" id="searchInput" placeholder="キーワードで検索" aria-label="キーワードで検索">
+    <select class="filter-control" id="fieldSelect" aria-label="分野"></select>
+    <select class="filter-control" id="sourceSelect" aria-label="元サイト"></select>
+    <select class="filter-control" id="starSelect" aria-label="★で絞り込み">
+      <option value="">★：すべて</option>
+      <option value="me3">自分の★★★</option>
+      <option value="me2">自分の★★以上</option>
+      <option value="me1">自分の★あり</option>
+      <option value="me0">自分の★なし</option>
+      <option value="ai3">AIの★★★</option>
+      <option value="ai2">AIの★★以上</option>
+    </select>
+    <button type="button" class="filter-control" id="clearFilters">絞り込みを解除</button>
+  </div>
+  <p class="filter-summary" id="filterSummary"></p>
+</header>
+
+<main id="main"></main>
+
+<dialog class="settings" id="settingsDialog">
+  <form method="dialog" id="settingsForm">
+    <h2 style="margin:0;font-size:18px">設定</h2>
+    <label>リポジトリ（所有者/名前）
+      <input type="text" id="repoInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="cccdcccd/trend-neta">
+    </label>
+    <label>GitHub トークン
+      <input type="password" id="tokenInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…">
+    </label>
+    <p class="settings-help" id="tokenHelp">trend-neta だけを対象に「Contents: Read and write」を許可した Fine-grained トークンを使ってください。トークンはこの端末のブラウザにだけ保存されます。</p>
+    <div class="settings-actions">
+      <button type="button" class="secondary-button danger-text" id="forgetButton">トークンを削除</button>
+      <button type="button" class="secondary-button" id="cancelSettings">閉じる</button>
+      <button type="submit" class="primary-button" id="saveSettings">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+
+// ===== 設定の保存（この端末のブラウザ内だけ） =====
+const STORAGE_KEYS = { repo: "trendViewer.repo", token: "trendViewer.token", view: "trendViewer.view" };
+const DEFAULT_REPO = "cccdcccd/trend-neta";
+const DAILY_FILE_PATTERN = /^(\d{4})(\d{2})(\d{2})-trend\.md$/;
+const STARS_PATH = "state/stars.json";
+const SAVE_DELAY_MS = 1200;
+
+function storageGet(key) {
+  try { return localStorage.getItem(key); } catch (error) { return null; }
+}
+function storageSet(key, value) {
+  try {
+    if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value);
+  } catch (error) { /* プライベートブラウズ等で保存できない場合は無視（その回だけ有効） */ }
+}
+
+const settings = {
+  repo: storageGet(STORAGE_KEYS.repo) || DEFAULT_REPO,
+  token: storageGet(STORAGE_KEYS.token) || "",
+};
+
+// ===== 画面の状態 =====
+const state = {
+  view: storageGet(STORAGE_KEYS.view) === "stars" ? "stars" : "daily",
+  dates: [],          // [{ file, label }] 新しい順
+  currentFile: null,
+  day: null,          // 解析済みの日報
+  stars: { version: 1, items: {} },
+  starsSha: null,
+  pendingStars: new Map(), // url -> 記録 or null（未保存の変更）
+  saveTimer: null,
+  saving: false,
+  filters: { query: "", field: "", source: "", star: "" },
+};
+
+const el = (id) => document.getElementById(id);
+
+// ===== GitHub API =====
+class ApiError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+function describeApiError(status) {
+  if (status === 401) return "トークンが無効か期限切れです。設定から入れ直してください。";
+  if (status === 403) return "アクセスが拒否されました（トークンの権限不足か、利用回数の上限）。";
+  if (status === 404) return "見つかりません。リポジトリ名と、トークンの対象リポジトリを確認してください。";
+  if (status === 409 || status === 422) return "保存が他の変更とぶつかりました。";
+  return "通信に失敗しました（" + status + "）。";
+}
+
+async function githubRequest(path, options) {
+  const opts = options || {};
+  const [owner, repo] = settings.repo.split("/");
+  const url = "https://api.github.com/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/" + path;
+  const headers = {
+    "Authorization": "Bearer " + settings.token,
+    "Accept": opts.raw ? "application/vnd.github.raw+json" : "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  if (opts.body) headers["Content-Type"] = "application/json";
+  let response;
+  try {
+    response = await fetch(url, { method: opts.method || "GET", headers, body: opts.body, cache: "no-store" });
+  } catch (error) {
+    throw new ApiError(0, "ネットワークに接続できません。");
+  }
+  if (!response.ok) throw new ApiError(response.status, describeApiError(response.status));
+  return opts.raw ? response.text() : response.json();
+}
+
+function encodePath(path) {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
+function decodeBase64Utf8(base64) {
+  const binary = atob(base64.replace(/\s/g, ""));
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  return new TextDecoder("utf-8").decode(bytes);
+}
+function encodeBase64Utf8(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
+// ===== 日報（Markdown）の解析 =====
+// 外部サイト由来の文字列を含むため、HTML として解釈せず、データとして取り出す。
+const LINK_PATTERN = /\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g;
+
+function isSafeUrl(url) {
+  return /^https?:\/\//i.test(url);
+}
+
+function splitTableRow(line) {
+  const body = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  const cells = [];
+  let current = "";
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === "\\" && body[i + 1] === "|") { current += "|"; i++; continue; }
+    if (ch === "|") { cells.push(current.trim()); current = ""; continue; }
+    current += ch;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function extractLinks(text) {
+  const links = [];
+  for (const match of text.matchAll(LINK_PATTERN)) {
+    if (isSafeUrl(match[2])) links.push({ label: match[1], url: match[2] });
+  }
+  return links;
+}
+
+function stripLinks(text) {
+  return text.replace(LINK_PATTERN, "$1");
+}
+
+// 出典ラベル（例「HN 199pt」「はてブ 189」）から数字部分を除いてサイト名にする
+function labelToSource(label) {
+  return label.replace(/\s*[\d,]+\s*(pt|users?)?\s*$/i, "").replace(/^同（.*）$/, "").trim();
+}
+
+// 出典ラベルの略称を、一覧の見出し名（元サイト名）にそろえる
+const SOURCE_ALIASES = { "HN": "Hacker News", "はてブ": "はてブ 総合" };
+function resolveSourceName(name, sources) {
+  if (!name) return "";
+  const target = SOURCE_ALIASES[name] || name;
+  const exact = sources.find((s) => s.name === target);
+  if (exact) return exact.name;
+  const partial = sources.find((s) => s.name.includes(target));
+  return partial ? partial.name : target;
+}
+
+function parseDaily(markdown, dateLabel) {
+  const day = { date: dateLabel, title: "", topics: [], blogIdeas: [], sources: [], failed: [], others: [] };
+  const sourceMap = new Map(); // 見出し名 -> { name, entries, urls }
+  let section = "";
+  let currentSource = null;
+
+  for (const rawLine of markdown.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) continue;
+    if (line.startsWith("# ")) { day.title = line.slice(2).trim(); continue; }
+    if (line.startsWith("## ")) {
+      const heading = line.slice(3);
+      if (heading.startsWith("今日の注目トピック")) section = "topics";
+      else if (heading.startsWith("ブログネタ候補")) section = "blog";
+      else if (heading.startsWith("全エントリー一覧")) section = "entries";
+      else if (heading.startsWith("取得できなかった収集元")) section = "failed";
+      else section = "other";
+      currentSource = null;
+      continue;
+    }
+    if (section === "entries" && line.startsWith("### ")) {
+      const name = line.slice(4).trim();
+      // 同じ見出しが2回出ることがあるので1つにまとめる
+      if (!sourceMap.has(name)) {
+        const source = { name, entries: [], urls: new Set() };
+        sourceMap.set(name, source);
+        day.sources.push(source);
+      }
+      currentSource = sourceMap.get(name);
+      continue;
+    }
+
+    if (section === "topics" && line.startsWith("|")) {
+      const cells = splitTableRow(line);
+      if (cells.length < 5 || /^-+$/.test(cells[0].replace(/:/g, "")) || cells[0] === "★") continue;
+      const links = extractLinks(cells[4]);
+      day.topics.push({
+        kind: "topic",
+        aiLevel: (cells[0].match(/★/g) || []).length,
+        fields: cells[1].split(/[／\/]/).map((s) => s.trim()).filter(Boolean),
+        title: stripLinks(cells[2]),
+        note: stripLinks(cells[3]),
+        links,
+        key: links.length ? links[0].url : "topic:" + dateLabel + ":" + cells[2],
+        sourceNames: [],
+      });
+    } else if (section === "blog" && line.startsWith("- ")) {
+      day.blogIdeas.push(line.slice(2));
+    } else if (section === "entries" && line.startsWith("- ")) {
+      const match = line.match(/^- (.*?)\s*\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)(.*)$/);
+      const source = currentSource || (() => {
+        const fallback = { name: "その他", entries: [], urls: new Set() };
+        sourceMap.set(fallback.name, fallback); day.sources.push(fallback); currentSource = fallback; return fallback;
+      })();
+      if (match) {
+        if (source.urls.has(match[3])) continue;
+        source.urls.add(match[3]);
+        source.entries.push({
+          kind: "entry", title: stripLinks(match[1]), sub: match[4].trim(),
+          links: [{ label: match[2] || "リンク", url: match[3] }], key: match[3],
+          fields: [], sourceNames: [source.name], aiLevel: 0,
+        });
+      } else {
+        source.entries.push({
+          kind: "entry", title: stripLinks(line.slice(2)), sub: "", links: [], key: "text:" + line,
+          fields: [], sourceNames: [source.name], aiLevel: 0,
+        });
+      }
+    } else if (section === "failed" && line.startsWith("- ")) {
+      day.failed.push(line.slice(2));
+    } else if (section === "other") {
+      day.others.push(line);
+    }
+  }
+
+  // 注目トピックの出典を「元サイト」名に対応付け、一覧の記事にも分野とAIの★を引き継ぐ
+  const entryByUrl = new Map();
+  for (const source of day.sources) for (const entry of source.entries) entryByUrl.set(entry.key, entry);
+  for (const topic of day.topics) {
+    const names = new Set();
+    for (const link of topic.links) {
+      const entry = entryByUrl.get(link.url);
+      if (entry) {
+        names.add(entry.sourceNames[0]);
+        entry.fields = Array.from(new Set(entry.fields.concat(topic.fields)));
+        entry.aiLevel = Math.max(entry.aiLevel, topic.aiLevel);
+      } else {
+        const name = resolveSourceName(labelToSource(link.label), day.sources);
+        if (name) names.add(name);
+      }
+    }
+    topic.sourceNames = Array.from(names);
+  }
+  return day;
+}
+
+// ===== 自分の★ =====
+function getMyLevel(key) {
+  const record = state.stars.items[key];
+  return record ? record.level : 0;
+}
+
+function setMyLevel(item, level) {
+  const key = item.key;
+  if (!isSafeUrl(key)) return; // URL のない項目には★を付けない
+  let record = null;
+  if (level > 0) {
+    const previous = state.stars.items[key];
+    record = {
+      level,
+      title: item.title,
+      date: previous ? previous.date : (state.day ? state.day.date : item.date || ""),
+      fields: item.fields || [],
+      sources: item.sourceNames || [],
+      starredAt: new Date().toISOString(),
+    };
+    state.stars.items[key] = record;
+  } else {
+    delete state.stars.items[key];
+  }
+  state.pendingStars.set(key, record);
+  scheduleSave();
+}
+
+function scheduleSave() {
+  setSaveStatus("未保存…", false);
+  clearTimeout(state.saveTimer);
+  state.saveTimer = setTimeout(saveStars, SAVE_DELAY_MS);
+}
+
+function setSaveStatus(text, isError) {
+  const status = el("saveStatus");
+  status.textContent = text;
+  status.classList.toggle("is-error", Boolean(isError));
+}
+
+async function fetchStars() {
+  try {
+    const data = await githubRequest("contents/" + encodePath(STARS_PATH) + "?ref=main");
+    const parsed = JSON.parse(decodeBase64Utf8(data.content || ""));
+    const items = parsed && typeof parsed.items === "object" && parsed.items ? parsed.items : {};
+    return { stars: { version: 1, items: sanitizeStarItems(items) }, sha: data.sha };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return { stars: { version: 1, items: {} }, sha: null };
+    if (error instanceof SyntaxError) throw new ApiError(0, "state/stars.json の形式が壊れています。");
+    throw error;
+  }
+}
+
+// 読み込んだ★データの形を確かめ、想定外の値は捨てる
+function sanitizeStarItems(items) {
+  const clean = {};
+  for (const [url, record] of Object.entries(items)) {
+    if (!isSafeUrl(url) || !record || typeof record !== "object") continue;
+    const level = Number(record.level);
+    if (![1, 2, 3].includes(level)) continue;
+    clean[url] = {
+      level,
+      title: String(record.title || url).slice(0, 300),
+      date: String(record.date || "").slice(0, 10),
+      fields: Array.isArray(record.fields) ? record.fields.map(String).slice(0, 10) : [],
+      sources: Array.isArray(record.sources) ? record.sources.map(String).slice(0, 10) : [],
+      starredAt: String(record.starredAt || ""),
+    };
+  }
+  return clean;
+}
+
+function applyPending(items) {
+  for (const [key, record] of state.pendingStars) {
+    if (record) items[key] = record; else delete items[key];
+  }
+  return items;
+}
+
+async function saveStars() {
+  if (state.saving) { scheduleSave(); return; }
+  if (state.pendingStars.size === 0) return;
+  state.saving = true;
+  setSaveStatus("保存中…", false);
+  const sending = new Map(state.pendingStars);
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await putStars(sending);
+        break;
+      } catch (error) {
+        const conflict = error instanceof ApiError && (error.status === 409 || error.status === 422);
+        if (!conflict || attempt === 1) throw error;
+        // ほかの端末やルーチンの変更とぶつかったら、最新を読み直して自分の変更を重ねる
+        const latest = await fetchStars();
+        state.starsSha = latest.sha;
+        state.stars = { version: 1, items: applyPending(latest.stars.items) };
+      }
+    }
+    for (const [key, record] of sending) {
+      if (state.pendingStars.get(key) === record) state.pendingStars.delete(key);
+    }
+    setSaveStatus(state.pendingStars.size ? "未保存…" : "保存済み", false);
+    if (state.pendingStars.size) scheduleSave();
+  } catch (error) {
+    setSaveStatus("保存失敗", true);
+    showToastError(error.message + " ★は次に操作したときにもう一度保存します。");
+  } finally {
+    state.saving = false;
+  }
+}
+
+async function putStars() {
+  const sorted = {};
+  for (const key of Object.keys(state.stars.items).sort()) sorted[key] = state.stars.items[key];
+  const json = JSON.stringify({ version: 1, items: sorted }, null, 2) + "\n";
+  const body = { message: "★を更新（ビューア）", content: encodeBase64Utf8(json), branch: "main" };
+  if (state.starsSha) body.sha = state.starsSha;
+  const result = await githubRequest("contents/" + encodePath(STARS_PATH), { method: "PUT", body: JSON.stringify(body) });
+  state.starsSha = result.content.sha;
+}
+
+function showToastError(text) {
+  const status = el("saveStatus");
+  status.title = text;
+  const main = el("main");
+  const note = document.createElement("p");
+  note.className = "message is-error";
+  note.textContent = text;
+  main.prepend(note);
+}
+
+// ===== 絞り込み =====
+function itemMatches(item, myLevel) {
+  const f = state.filters;
+  if (f.field && !(item.fields || []).includes(f.field)) return false;
+  if (f.source && !(item.sourceNames || []).includes(f.source)) return false;
+  if (f.star) {
+    const kind = f.star.slice(0, 2);
+    const n = Number(f.star.slice(2));
+    if (kind === "me") {
+      if (n === 0 ? myLevel !== 0 : myLevel < n) return false;
+    } else if ((item.aiLevel || 0) < n) return false;
+  }
+  if (f.query) {
+    const haystack = [item.title, item.note || "", item.sub || "", (item.fields || []).join(" "), (item.sourceNames || []).join(" ")].join(" ").toLowerCase();
+    const words = f.query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.every((w) => haystack.includes(w))) return false;
+  }
+  return true;
+}
+
+function hasActiveFilter() {
+  const f = state.filters;
+  return Boolean(f.query || f.field || f.source || f.star);
+}
+
+function fillSelect(select, placeholder, values, current) {
+  select.replaceChildren();
+  const first = document.createElement("option");
+  first.value = ""; first.textContent = placeholder;
+  select.append(first);
+  for (const value of values) {
+    const option = document.createElement("option");
+    option.value = value; option.textContent = value;
+    select.append(option);
+  }
+  select.value = values.includes(current) ? current : "";
+}
+
+function collectOptions(items) {
+  const fields = new Set();
+  const sources = new Set();
+  for (const item of items) {
+    (item.fields || []).forEach((v) => fields.add(v));
+    (item.sourceNames || []).forEach((v) => sources.add(v));
+  }
+  return { fields: Array.from(fields).sort(), sources: Array.from(sources).sort() };
+}
+
+function refreshFilterOptions(items) {
+  const { fields, sources } = collectOptions(items);
+  fillSelect(el("fieldSelect"), "分野：すべて", fields, state.filters.field);
+  fillSelect(el("sourceSelect"), "元サイト：すべて", sources, state.filters.source);
+  state.filters.field = el("fieldSelect").value;
+  state.filters.source = el("sourceSelect").value;
+}
+
+// ===== 描画 =====
+function appendInline(parent, text) {
+  // **太字** と [文字](URL) だけを扱い、それ以外はただの文字として表示する
+  const pattern = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    if (match.index > last) parent.append(text.slice(last, match.index));
+    if (match[1] !== undefined) {
+      const strong = document.createElement("strong");
+      strong.textContent = match[1];
+      parent.append(strong);
+    } else if (isSafeUrl(match[3])) {
+      parent.append(createLink(match[2], match[3]));
+    } else {
+      parent.append(match[2]);
+    }
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) parent.append(text.slice(last));
+}
+
+function createLink(label, url) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.textContent = label;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  return a;
+}
+
+function createRating(item) {
+  const wrap = document.createElement("span");
+  wrap.className = "rating";
+  if (!isSafeUrl(item.key)) return wrap;
+  const level = getMyLevel(item.key);
+  for (let n = 1; n <= 3; n++) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "star-button" + (n <= level ? " is-on" : "");
+    button.textContent = "★";
+    button.setAttribute("aria-label", "自分の★を" + n + "にする");
+    button.setAttribute("aria-pressed", String(n === level));
+    button.addEventListener("click", () => {
+      setMyLevel(item, getMyLevel(item.key) === n ? 0 : n);
+      render();
+    });
+    wrap.append(button);
+  }
+  return wrap;
+}
+
+function createTopicCard(topic) {
+  const li = document.createElement("li");
+  li.className = "topic-card";
+  const meta = document.createElement("div");
+  meta.className = "topic-meta";
+  if (topic.aiLevel) {
+    const badge = document.createElement("span");
+    badge.className = "ai-badge";
+    badge.textContent = "AI " + "★".repeat(topic.aiLevel);
+    meta.append(badge);
+  }
+  for (const field of topic.fields) {
+    const badge = document.createElement("span");
+    badge.className = "field-badge";
+    badge.textContent = field;
+    meta.append(badge);
+  }
+  if (topic.date) {
+    const date = document.createElement("span");
+    date.textContent = topic.date;
+    meta.append(date);
+  }
+  const title = document.createElement("p");
+  title.className = "topic-title";
+  title.textContent = topic.title;
+  li.append(meta, title);
+  if (topic.note) {
+    const note = document.createElement("p");
+    note.className = "topic-note";
+    note.textContent = topic.note;
+    li.append(note);
+  }
+  const footer = document.createElement("div");
+  footer.className = "item-footer";
+  const links = document.createElement("div");
+  links.className = "link-row";
+  for (const link of topic.links) links.append(createLink(link.label, link.url));
+  footer.append(links, createRating(topic));
+  li.append(footer);
+  return li;
+}
+
+function createEntryItem(entry) {
+  const li = document.createElement("li");
+  li.className = "entry-item";
+  const footer = document.createElement("div");
+  footer.className = "item-footer";
+  const body = document.createElement("div");
+  const title = document.createElement("div");
+  title.className = "entry-title";
+  if (entry.links.length) title.append(createLink(entry.title, entry.links[0].url));
+  else title.textContent = entry.title;
+  body.append(title);
+  if (entry.sub) {
+    const sub = document.createElement("div");
+    sub.className = "entry-sub";
+    sub.textContent = entry.sub;
+    body.append(sub);
+  }
+  footer.append(body, createRating(entry));
+  li.append(footer);
+  return li;
+}
+
+function appendHeading(main, text, className) {
+  const h = document.createElement(className === "source-title" ? "h3" : "h2");
+  h.className = className;
+  h.textContent = text;
+  main.append(h);
+}
+
+function showMessage(text, isError) {
+  const main = el("main");
+  const p = document.createElement("p");
+  p.className = "message" + (isError ? " is-error" : "");
+  p.textContent = text;
+  main.replaceChildren(p);
+}
+
+function render() {
+  el("tabDaily").setAttribute("aria-selected", String(state.view === "daily"));
+  el("tabStars").setAttribute("aria-selected", String(state.view === "stars"));
+  el("dateNav").hidden = state.view !== "daily";
+  const toggle = el("filterToggle");
+  const expanded = toggle.getAttribute("aria-expanded") === "true";
+  toggle.textContent = (hasActiveFilter() ? "検索・絞り込み（適用中）" : "検索・絞り込み") + (expanded ? " ▴" : " ▾");
+  toggle.classList.toggle("is-active", hasActiveFilter());
+  if (state.view === "daily") renderDaily(); else renderStars();
+}
+
+function renderDaily() {
+  const main = el("main");
+  const day = state.day;
+  if (!day) return;
+  const allItems = day.topics.concat(...day.sources.map((s) => s.entries));
+  refreshFilterOptions(allItems);
+  main.replaceChildren();
+  let shown = 0;
+
+  const topics = day.topics.filter((t) => itemMatches(t, getMyLevel(t.key)));
+  if (topics.length) {
+    appendHeading(main, "今日の注目トピック", "section-title");
+    const list = document.createElement("ul");
+    list.className = "card-list";
+    topics.forEach((t) => list.append(createTopicCard(t)));
+    main.append(list);
+    shown += topics.length;
+  }
+
+  if (!hasActiveFilter() && day.blogIdeas.length) {
+    appendHeading(main, "ブログネタ候補", "section-title");
+    const list = document.createElement("ul");
+    list.className = "blog-list";
+    for (const idea of day.blogIdeas) {
+      const li = document.createElement("li");
+      appendInline(li, idea);
+      list.append(li);
+    }
+    main.append(list);
+  }
+
+  let entriesHeadingShown = false;
+  for (const source of day.sources) {
+    const entries = source.entries.filter((e) => itemMatches(e, getMyLevel(e.key)));
+    if (!entries.length) continue;
+    if (!entriesHeadingShown) { appendHeading(main, "全エントリー", "section-title"); entriesHeadingShown = true; }
+    appendHeading(main, source.name + "（" + entries.length + "）", "source-title");
+    const list = document.createElement("ul");
+    list.className = "entry-list";
+    entries.forEach((e) => list.append(createEntryItem(e)));
+    main.append(list);
+    shown += entries.length;
+  }
+
+  if (!hasActiveFilter() && day.failed.length) {
+    const details = document.createElement("details");
+    details.className = "failed";
+    const summary = document.createElement("summary");
+    summary.textContent = "取得できなかった収集元（" + day.failed.length + "）";
+    details.append(summary);
+    for (const line of day.failed) {
+      const p = document.createElement("p");
+      p.textContent = stripLinks(line);
+      details.append(p);
+    }
+    main.append(details);
+  }
+
+  el("filterSummary").textContent = hasActiveFilter() ? shown + "件が条件に一致" : "";
+  if (shown === 0 && hasActiveFilter()) {
+    const p = document.createElement("p");
+    p.className = "message";
+    p.textContent = "条件に一致する記事はありません。";
+    main.append(p);
+  }
+}
+
+function renderStars() {
+  const main = el("main");
+  const items = Object.entries(state.stars.items).map(([url, record]) => ({
+    kind: "topic", key: url, title: record.title, note: "", date: record.date,
+    fields: record.fields, sourceNames: record.sources, aiLevel: 0,
+    links: [{ label: hostOf(url), url }], myLevel: record.level, starredAt: record.starredAt,
+  }));
+  refreshFilterOptions(items);
+  const filtered = items
+    .filter((item) => itemMatches(item, item.myLevel))
+    .sort((a, b) => b.myLevel - a.myLevel || b.date.localeCompare(a.date) || b.starredAt.localeCompare(a.starredAt));
+  main.replaceChildren();
+  el("filterSummary").textContent = filtered.length + "件 / ★を付けた記事 全" + items.length + "件";
+  if (!filtered.length) {
+    showMessage(items.length ? "条件に一致する記事はありません。" : "まだ★を付けた記事はありません。日別の画面で★をタップしてください。");
+    return;
+  }
+  const list = document.createElement("ul");
+  list.className = "card-list";
+  filtered.forEach((item) => list.append(createTopicCard(item)));
+  main.append(list);
+}
+
+function hostOf(url) {
+  try { return new URL(url).hostname; } catch (error) { return "リンク"; }
+}
+
+// ===== 読み込み =====
+async function loadDateList() {
+  const listing = await githubRequest("contents/daily?ref=main");
+  state.dates = (Array.isArray(listing) ? listing : [])
+    .map((f) => f.name)
+    .filter((name) => DAILY_FILE_PATTERN.test(name))
+    .sort()
+    .reverse()
+    .map((file) => {
+      const m = file.match(DAILY_FILE_PATTERN);
+      return { file, label: m[1] + "-" + m[2] + "-" + m[3] };
+    });
+  const select = el("dateSelect");
+  select.replaceChildren();
+  for (const d of state.dates) {
+    const option = document.createElement("option");
+    option.value = d.file; option.textContent = d.label;
+    select.append(option);
+  }
+}
+
+async function loadDay(file) {
+  const entry = state.dates.find((d) => d.file === file);
+  if (!entry) return;
+  state.currentFile = file;
+  el("dateSelect").value = file;
+  showMessage("読み込み中…");
+  const markdown = await githubRequest("contents/daily/" + encodeURIComponent(file) + "?ref=main", { raw: true });
+  state.day = parseDaily(markdown, entry.label);
+  updateDateButtons();
+  render();
+  window.scrollTo(0, 0);
+}
+
+function updateDateButtons() {
+  const index = state.dates.findIndex((d) => d.file === state.currentFile);
+  el("prevDate").disabled = index < 0 || index >= state.dates.length - 1;
+  el("nextDate").disabled = index <= 0;
+}
+
+async function loadAll() {
+  if (!settings.token) {
+    showMessage("右上の「設定」から GitHub トークンを入力してください。");
+    openSettings();
+    return;
+  }
+  showMessage("読み込み中…");
+  try {
+    const [, starsResult] = await Promise.all([loadDateList(), fetchStars()]);
+    state.starsSha = starsResult.sha;
+    state.stars = { version: 1, items: applyPending(starsResult.stars.items) };
+    if (!state.dates.length) {
+      state.day = null;
+      if (state.view === "daily") showMessage("daily/ に日報がまだありません。"); else render();
+      return;
+    }
+    const keep = state.dates.some((d) => d.file === state.currentFile) ? state.currentFile : state.dates[0].file;
+    await loadDay(keep);
+  } catch (error) {
+    showMessage(error.message || "読み込みに失敗しました。", true);
+  }
+}
+
+// ===== 設定画面 =====
+function openSettings() {
+  el("repoInput").value = settings.repo;
+  el("tokenInput").value = "";
+  el("tokenInput").placeholder = settings.token ? "保存済み（変更するときだけ入力）" : "github_pat_…";
+  const dialog = el("settingsDialog");
+  if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+}
+
+el("settingsForm").addEventListener("submit", (event) => {
+  const repo = el("repoInput").value.trim();
+  const token = el("tokenInput").value.trim();
+  if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo)) {
+    event.preventDefault();
+    el("tokenHelp").textContent = "リポジトリは「所有者/名前」の形で入力してください。";
+    return;
+  }
+  if (token && !/^[A-Za-z0-9_]+$/.test(token)) {
+    event.preventDefault();
+    el("tokenHelp").textContent = "トークンに使えない文字が含まれています。コピーし直してください。";
+    return;
+  }
+  settings.repo = repo;
+  storageSet(STORAGE_KEYS.repo, repo);
+  if (token) { settings.token = token; storageSet(STORAGE_KEYS.token, token); }
+  loadAll();
+});
+el("cancelSettings").addEventListener("click", () => el("settingsDialog").close());
+el("forgetButton").addEventListener("click", () => {
+  settings.token = "";
+  storageSet(STORAGE_KEYS.token, null);
+  el("settingsDialog").close();
+  state.day = null;
+  showMessage("トークンを削除しました。");
+});
+
+// ===== 操作 =====
+el("settingsButton").addEventListener("click", openSettings);
+el("reloadButton").addEventListener("click", loadAll);
+el("tabDaily").addEventListener("click", () => { state.view = "daily"; storageSet(STORAGE_KEYS.view, "daily"); render(); });
+el("tabStars").addEventListener("click", () => { state.view = "stars"; storageSet(STORAGE_KEYS.view, "stars"); render(); });
+el("dateSelect").addEventListener("change", (e) => loadDay(e.target.value).catch((error) => showMessage(error.message, true)));
+el("prevDate").addEventListener("click", () => moveDate(1));
+el("nextDate").addEventListener("click", () => moveDate(-1));
+function moveDate(step) {
+  const index = state.dates.findIndex((d) => d.file === state.currentFile);
+  const next = state.dates[index + step];
+  if (next) loadDay(next.file).catch((error) => showMessage(error.message, true));
+}
+
+el("filterToggle").addEventListener("click", () => {
+  const toggle = el("filterToggle");
+  const expanded = toggle.getAttribute("aria-expanded") !== "true";
+  toggle.setAttribute("aria-expanded", String(expanded));
+  el("filters").hidden = !expanded;
+  render();
+});
+
+let searchTimer = null;
+el("searchInput").addEventListener("input", (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { state.filters.query = e.target.value.trim(); render(); }, 200);
+});
+el("fieldSelect").addEventListener("change", (e) => { state.filters.field = e.target.value; render(); });
+el("sourceSelect").addEventListener("change", (e) => { state.filters.source = e.target.value; render(); });
+el("starSelect").addEventListener("change", (e) => { state.filters.star = e.target.value; render(); });
+el("clearFilters").addEventListener("click", () => {
+  state.filters = { query: "", field: "", source: "", star: "" };
+  el("searchInput").value = "";
+  el("starSelect").value = "";
+  render();
+});
+
+// 画面を閉じる前に未保存の★があれば保存を試みる
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && state.pendingStars.size) {
+    clearTimeout(state.saveTimer);
+    saveStars();
+  }
+});
+
+loadAll();
+</script>
+</body>
+</html>
