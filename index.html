@@ -24,6 +24,8 @@
   --color-ai-badge-bg: #efeae0;
   --color-danger: #c4352b;
   --color-ok: #2e7d4f;
+  --color-warning: #d68a00;
+  --color-warning-bg: #fff4dc;
   --radius: 12px;
   --space-1: 4px;
   --space-2: 8px;
@@ -45,6 +47,8 @@
     --color-ai-badge-bg: #2a2723;
     --color-danger: #ff6b5e;
     --color-ok: #5fcf8c;
+    --color-warning: #ffb02e;
+    --color-warning-bg: #3a2c10;
     color-scheme: dark;
   }
 }
@@ -132,6 +136,7 @@ dialog.settings {
   border: 1px solid var(--color-border); border-radius: var(--radius);
   background: var(--color-surface); color: var(--color-text);
   width: min(480px, calc(100vw - 32px)); padding: var(--space-4);
+  max-height: calc(100dvh - 32px); overflow-y: auto; -webkit-overflow-scrolling: touch;
 }
 dialog.settings::backdrop { background: rgba(0, 0, 0, 0.4); }
 .settings label { display: block; font-size: 14px; margin-top: var(--space-3); }
@@ -141,6 +146,18 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, 0.4); }
 .primary-button { background: var(--color-accent); color: #fff; border: 0; border-radius: 8px; padding: var(--space-2) var(--space-4); min-height: 40px; }
 .secondary-button { background: none; border: 1px solid var(--color-border); border-radius: 8px; padding: var(--space-2) var(--space-4); min-height: 40px; }
 .danger-text { color: var(--color-danger); }
+.token-warning {
+  display: block; width: 100%; margin-top: var(--space-2); padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-warning); border-radius: 8px;
+  background: var(--color-warning-bg); color: var(--color-text); text-align: left; font-size: 14px;
+}
+.token-warning[hidden] { display: none; }
+.token-warning.is-expired { border-color: var(--color-danger); }
+.howto { margin-top: var(--space-4); border-top: 1px solid var(--color-border); padding-top: var(--space-2); }
+.howto h3 { font-size: 15px; margin: var(--space-2) 0; }
+.howto ol { padding-left: 1.3em; margin: 0; font-size: 14px; }
+.howto li { margin-bottom: var(--space-1); }
+.howto code { font-size: 13px; }
 </style>
 </head>
 <body>
@@ -151,6 +168,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, 0.4); }
     <button type="button" class="icon-button" id="reloadButton" aria-label="再読み込み">↻</button>
     <button type="button" class="icon-button" id="settingsButton">設定</button>
   </div>
+  <button type="button" class="token-warning" id="tokenWarning" hidden></button>
   <div class="tabs" role="tablist">
     <button type="button" class="tab-button" role="tab" id="tabDaily" aria-selected="true">日別</button>
     <button type="button" class="tab-button" role="tab" id="tabStars" aria-selected="false">★一覧</button>
@@ -191,6 +209,21 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, 0.4); }
       <input type="password" id="tokenInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…">
     </label>
     <p class="settings-help" id="tokenHelp">trend-neta だけを対象に「Contents: Read and write」を許可した Fine-grained トークンを使ってください。トークンはこの端末のブラウザにだけ保存されます。</p>
+    <label>トークンの有効期限
+      <input type="date" id="expiryInput">
+    </label>
+    <p class="settings-help" id="expiryHelp">期限の14日前から画面上部でお知らせします。新しいトークンを貼り付けると、今日から90日後が自動で入ります（違う期限にした場合は直してください）。</p>
+    <section class="howto" id="tokenHowto" aria-labelledby="howtoTitle">
+      <h3 id="howtoTitle">トークンの更新方法</h3>
+      <ol>
+        <li>Safari で <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">GitHub のトークン一覧</a> を開く（ログイン画面が出たら <code>cccdcccd</code> でログイン）</li>
+        <li>一覧から今使っているトークン（例：<code>trend-viewer-iphone</code>）をタップ</li>
+        <li>「Regenerate token」をタップし、有効期限（Expiration）で「90 days」を選んで、もう一度「Regenerate token」をタップ</li>
+        <li>表示された <code>github_pat_</code> で始まる文字列をコピー（この画面を閉じると二度と表示されません）</li>
+        <li>このページに戻り、上の「GitHub トークン」欄に貼り付ける。有効期限が今日から90日後になっていることを確かめて「保存」をタップ</li>
+      </ol>
+      <p class="settings-help">「Regenerate token」が見当たらないときは、一覧の「Generate new token」で作り直します。「Repository access」は「Only select repositories」で <code>trend-neta</code> だけ、「Permissions」は「Contents」を「Read and write」にしてください。作り直した場合は、古いトークンを一覧から削除（Delete）してください。</p>
+    </section>
     <div class="settings-actions">
       <button type="button" class="secondary-button danger-text" id="forgetButton">トークンを削除</button>
       <button type="button" class="secondary-button" id="cancelSettings">閉じる</button>
@@ -203,7 +236,10 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, 0.4); }
 "use strict";
 
 // ===== 設定の保存（この端末のブラウザ内だけ） =====
-const STORAGE_KEYS = { repo: "trendViewer.repo", token: "trendViewer.token", view: "trendViewer.view" };
+const STORAGE_KEYS = { repo: "trendViewer.repo", token: "trendViewer.token", expiry: "trendViewer.tokenExpiry", view: "trendViewer.view" };
+const TOKEN_WARNING_DAYS = 14;
+const TOKEN_DEFAULT_DAYS = 90;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_REPO = "cccdcccd/trend-neta";
 const DAILY_FILE_PATTERN = /^(\d{4})(\d{2})(\d{2})-trend\.md$/;
 const STARS_PATH = "state/stars.json";
@@ -221,7 +257,43 @@ function storageSet(key, value) {
 const settings = {
   repo: storageGet(STORAGE_KEYS.repo) || DEFAULT_REPO,
   token: storageGet(STORAGE_KEYS.token) || "",
+  expiry: DATE_PATTERN.test(storageGet(STORAGE_KEYS.expiry) || "") ? storageGet(STORAGE_KEYS.expiry) : "",
 };
+
+// ===== トークンの有効期限 =====
+// GitHub API は期限をブラウザに教えないため、設定画面で入力した日付を使う
+function formatDate(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate());
+}
+
+function daysUntil(dateText) {
+  const [y, m, d] = dateText.split("-").map(Number);
+  const target = new Date(y, m - 1, d);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target - today) / 86400000);
+}
+
+function updateTokenWarning() {
+  const banner = el("tokenWarning");
+  banner.classList.remove("is-expired");
+  if (!settings.token || !settings.expiry) {
+    banner.hidden = !settings.token;
+    banner.textContent = "トークンの有効期限が未設定です。タップして設定すると、期限が近づいたらお知らせします。";
+    return;
+  }
+  const days = daysUntil(settings.expiry);
+  const [, m, d] = settings.expiry.split("-").map(Number);
+  if (days > TOKEN_WARNING_DAYS) { banner.hidden = true; return; }
+  banner.hidden = false;
+  if (days < 0) {
+    banner.classList.add("is-expired");
+    banner.textContent = "⚠ トークンの有効期限（" + m + "/" + d + "）が切れています。タップして更新方法を見る";
+  } else {
+    banner.textContent = "⚠ トークンの有効期限まであと" + days + "日（" + m + "/" + d + "）。タップして更新方法を見る";
+  }
+}
 
 // ===== 画面の状態 =====
 const state = {
@@ -245,7 +317,7 @@ class ApiError extends Error {
 }
 
 function describeApiError(status) {
-  if (status === 401) return "トークンが無効か期限切れです。設定から入れ直してください。";
+  if (status === 401) return "トークンが無効か期限切れです。「設定」の「トークンの更新方法」に沿って入れ直してください。";
   if (status === 403) return "アクセスが拒否されました（トークンの権限不足か、利用回数の上限）。";
   if (status === 404) return "見つかりません。リポジトリ名と、トークンの対象リポジトリを確認してください。";
   if (status === 409 || status === 422) return "保存が他の変更とぶつかりました。";
@@ -923,13 +995,26 @@ async function loadAll() {
 }
 
 // ===== 設定画面 =====
-function openSettings() {
+function openSettings(scrollToHowto) {
   el("repoInput").value = settings.repo;
   el("tokenInput").value = "";
   el("tokenInput").placeholder = settings.token ? "保存済み（変更するときだけ入力）" : "github_pat_…";
+  el("expiryInput").value = settings.expiry;
   const dialog = el("settingsDialog");
   if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+  if (scrollToHowto === true) el("tokenHowto").scrollIntoView({ block: "start" });
 }
+
+// 新しいトークンを貼り付けたら、期限欄に「今日から90日後」を入れる
+el("tokenInput").addEventListener("input", () => {
+  if (!el("tokenInput").value.trim()) return;
+  const current = el("expiryInput").value;
+  if (current && current !== settings.expiry) return; // 自分で入力し直した値は上書きしない
+  const date = new Date();
+  date.setDate(date.getDate() + TOKEN_DEFAULT_DAYS);
+  el("expiryInput").value = formatDate(date);
+});
+el("tokenWarning").addEventListener("click", () => openSettings(true));
 
 el("settingsForm").addEventListener("submit", (event) => {
   const repo = el("repoInput").value.trim();
@@ -944,22 +1029,34 @@ el("settingsForm").addEventListener("submit", (event) => {
     el("tokenHelp").textContent = "トークンに使えない文字が含まれています。コピーし直してください。";
     return;
   }
+  const expiry = el("expiryInput").value;
+  if (expiry && !DATE_PATTERN.test(expiry)) {
+    event.preventDefault();
+    el("expiryHelp").textContent = "有効期限の日付を正しく入力してください。";
+    return;
+  }
   settings.repo = repo;
   storageSet(STORAGE_KEYS.repo, repo);
   if (token) { settings.token = token; storageSet(STORAGE_KEYS.token, token); }
+  settings.expiry = expiry;
+  storageSet(STORAGE_KEYS.expiry, expiry || null);
+  updateTokenWarning();
   loadAll();
 });
 el("cancelSettings").addEventListener("click", () => el("settingsDialog").close());
 el("forgetButton").addEventListener("click", () => {
   settings.token = "";
+  settings.expiry = "";
   storageSet(STORAGE_KEYS.token, null);
+  storageSet(STORAGE_KEYS.expiry, null);
+  updateTokenWarning();
   el("settingsDialog").close();
   state.day = null;
   showMessage("トークンを削除しました。");
 });
 
 // ===== 操作 =====
-el("settingsButton").addEventListener("click", openSettings);
+el("settingsButton").addEventListener("click", () => openSettings(false));
 el("reloadButton").addEventListener("click", loadAll);
 el("tabDaily").addEventListener("click", () => { state.view = "daily"; storageSet(STORAGE_KEYS.view, "daily"); render(); });
 el("tabStars").addEventListener("click", () => { state.view = "stars"; storageSet(STORAGE_KEYS.view, "stars"); render(); });
@@ -1003,6 +1100,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+updateTokenWarning();
 loadAll();
 </script>
 </body>
