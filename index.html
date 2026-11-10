@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- 外部への通信は GitHub API だけに制限する（トークンを他所へ送らせないため） -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://api.github.com; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://api.github.com; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src blob:; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -153,6 +153,15 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, 0.4); }
   background: var(--color-warning-bg); color: var(--color-text); text-align: left; font-size: 14px;
 }
 .token-warning[hidden] { display: none; }
+.radio-panel { max-width: 760px; margin: var(--space-3) auto 0; padding: var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); }
+.radio-panel[hidden] { display: none; }
+.radio-title { font-size: 15px; margin: 0 0 var(--space-2); }
+.radio-row { display: flex; gap: var(--space-2); }
+.radio-row select { flex: 1; }
+.radio-audio { width: 100%; margin-top: var(--space-2); }
+.radio-status { font-size: 12px; color: var(--color-muted); margin: var(--space-1) 0 0; }
+.radio-status.is-error { color: var(--color-danger); }
+.radio-credit { font-size: 11px; color: var(--color-muted); margin: var(--space-1) 0 0; }
 .token-warning.is-expired { border-color: var(--color-danger); }
 .howto { margin-top: var(--space-4); border-top: 1px solid var(--color-border); padding-top: var(--space-2); }
 .howto h3 { font-size: 15px; margin: var(--space-2) 0; }
@@ -197,6 +206,17 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, 0.4); }
   </div>
   <p class="filter-summary" id="filterSummary"></p>
 </header>
+
+<section class="radio-panel" id="radioPanel" aria-labelledby="radioTitle" hidden>
+  <h2 class="radio-title" id="radioTitle">トレンドラジオ</h2>
+  <div class="radio-row">
+    <select class="filter-control" id="radioSelect" aria-label="ラジオの回"></select>
+    <button type="button" class="primary-button" id="radioPlay">▶ 聞く</button>
+  </div>
+  <audio class="radio-audio" id="radioAudio" controls preload="none" hidden></audio>
+  <p class="radio-status" id="radioStatus" role="status" aria-live="polite"></p>
+  <p class="radio-credit">声：VOICEVOX:ナースロボ＿タイプＴ</p>
+</section>
 
 <main id="main"></main>
 
@@ -331,7 +351,7 @@ async function githubRequest(path, options) {
   const url = "https://api.github.com/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/" + path;
   const headers = {
     "Authorization": "Bearer " + settings.token,
-    "Accept": opts.raw ? "application/vnd.github.raw+json" : "application/vnd.github+json",
+    "Accept": opts.raw || opts.blob ? "application/vnd.github.raw+json" : "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
   };
   if (opts.body) headers["Content-Type"] = "application/json";
@@ -342,6 +362,7 @@ async function githubRequest(path, options) {
     throw new ApiError(0, "ネットワークに接続できません。");
   }
   if (!response.ok) throw new ApiError(response.status, describeApiError(response.status));
+  if (opts.blob) return response.blob();
   return opts.raw ? response.text() : response.json();
 }
 
@@ -976,6 +997,70 @@ async function loadDay(file) {
   window.scrollTo(0, 0);
 }
 
+// ===== トレンドラジオ（audio ブランチの mp3） =====
+const RADIO_FILE_PATTERN = /^(\d{4})(\d{2})(\d{2})-radio\.mp3$/;
+let radioObjectUrl = "";
+
+function setRadioStatus(text, isError) {
+  const status = el("radioStatus");
+  status.textContent = text;
+  status.classList.toggle("is-error", Boolean(isError));
+}
+
+async function loadRadioList() {
+  let listing;
+  try {
+    listing = await githubRequest("contents/?ref=audio");
+  } catch (error) {
+    // audio ブランチがまだない（音声を1回も作っていない）ときは欄を隠す
+    if (error instanceof ApiError && error.status === 404) { el("radioPanel").hidden = true; return; }
+    throw error;
+  }
+  const files = (Array.isArray(listing) ? listing : [])
+    .map((f) => f.name)
+    .filter((name) => RADIO_FILE_PATTERN.test(name))
+    .sort()
+    .reverse();
+  const select = el("radioSelect");
+  const previous = select.value;
+  select.replaceChildren();
+  for (const file of files) {
+    const m = file.match(RADIO_FILE_PATTERN);
+    const option = document.createElement("option");
+    option.value = file;
+    option.textContent = m[1] + "-" + m[2] + "-" + m[3] + " の回";
+    select.append(option);
+  }
+  if (files.includes(previous)) select.value = previous;
+  el("radioPanel").hidden = files.length === 0;
+}
+
+async function playRadio() {
+  const file = el("radioSelect").value;
+  if (!RADIO_FILE_PATTERN.test(file)) return;
+  const audio = el("radioAudio");
+  const button = el("radioPlay");
+  button.disabled = true;
+  setRadioStatus("音声を読み込み中…");
+  try {
+    const blob = await githubRequest("contents/" + encodeURIComponent(file) + "?ref=audio", { blob: true });
+    if (radioObjectUrl) URL.revokeObjectURL(radioObjectUrl);
+    radioObjectUrl = URL.createObjectURL(new Blob([blob], { type: "audio/mpeg" }));
+    audio.src = radioObjectUrl;
+    audio.hidden = false;
+    setRadioStatus("");
+    try {
+      await audio.play();
+    } catch (error) {
+      setRadioStatus("再生バーの ▶ を押すと再生します。");
+    }
+  } catch (error) {
+    setRadioStatus(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function updateDateButtons() {
   const index = state.dates.findIndex((d) => d.file === state.currentFile);
   el("prevDate").disabled = index < 0 || index >= state.dates.length - 1;
@@ -989,6 +1074,7 @@ async function loadAll() {
     return;
   }
   showMessage("読み込み中…");
+  loadRadioList().catch((error) => setRadioStatus(error.message, true));
   try {
     const [, starsResult] = await Promise.all([loadDateList(), fetchStars()]);
     state.starsSha = starsResult.sha;
@@ -1069,6 +1155,7 @@ el("forgetButton").addEventListener("click", () => {
 // ===== 操作 =====
 el("settingsButton").addEventListener("click", () => openSettings(false));
 el("reloadButton").addEventListener("click", loadAll);
+el("radioPlay").addEventListener("click", playRadio);
 el("tabDaily").addEventListener("click", () => { state.view = "daily"; storageSet(STORAGE_KEYS.view, "daily"); render(); });
 el("tabStars").addEventListener("click", () => { state.view = "stars"; storageSet(STORAGE_KEYS.view, "stars"); render(); });
 el("dateSelect").addEventListener("change", (e) => loadDay(e.target.value).catch((error) => showMessage(error.message, true)));
